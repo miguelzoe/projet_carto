@@ -52,7 +52,7 @@ export function Footer() {
               </li>
               <li>
                 <Link href="#" className="hover:text-emerald-400 transition-colors">
-                  Guide d'utilisation
+                  Guide d&apos;utilisation
                 </Link>
               </li>
               <li>

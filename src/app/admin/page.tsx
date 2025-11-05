@@ -338,7 +338,11 @@ export default function AdminPage() {
                 )}
               </div>
             ) : (
-              <MapView parcelles={filteredParcelles} searchQuery={searchQuery} />
+              <MapView 
+                parcelles={filteredParcelles} 
+                searchQuery={searchQuery}
+                setSearchQuery={setSearchQuery}
+              />
             )}
           </CardContent>
         </Card>

@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { MapPin, Search, Map, List, Info, Loader2, DollarSign, Calendar, Home, CheckCircle, AlertCircle, Clock, CreditCard, FileText, TrendingUp, Phone, Building2, User, Hash } from "lucide-react";
+import { MapPin, Search, Map, List, Info, Loader2, DollarSign, Home, CheckCircle, AlertCircle, Clock, CreditCard, FileText, TrendingUp, Phone, Building2, Hash } from "lucide-react";
 
 const API_BASE_URL = "https://gestion-fonciere-1.onrender.com";
 
@@ -148,7 +148,7 @@ export default function MesParcellesPage() {
     };
 
     fetchLargestParcelles();
-  }, []);
+  }, [currentUser.nom]); // Added currentUser.nom to dependency array
 
   const filteredParcelles = parcelles.filter(
     (parcelle) =>
@@ -934,7 +934,7 @@ export default function MesParcellesPage() {
                     'text-green-600'
                   }`} />
                 </div>
-                <h3 className="text-2xl font-bold text-gray-900">Paiement de l'impôt foncier</h3>
+                <h3 className="text-2xl font-bold text-gray-900">Paiement de l&apos;impôt foncier</h3>
                 <p className="text-gray-600 mt-2">Parcelle {selectedParcelle.numero}</p>
               </div>
               

@@ -10,18 +10,16 @@ import {
   CreditCard, 
   Download, 
   Search, 
-  Filter, 
   User, 
   MapPin, 
   Calendar,
   DollarSign,
   TrendingUp,
   Users,
-  Eye,
-  MoreHorizontal
+  Eye
 } from "lucide-react"
 import { useState, useMemo } from "react"
-import { mockUsers, mockParcelles, mockPaiements } from "@/lib/mock-data"
+import { mockUsers, mockParcelles } from "@/lib/mock-data"
 
 interface PaiementEtendu {
   id: string

@@ -91,7 +91,7 @@ export default function PaiementPage({ params }: { params: Promise<{ id: string 
           <div className="lg:col-span-2">
             <Card>
               <CardHeader>
-                <CardTitle>Paiement de l'Impôt Foncier</CardTitle>
+                <CardTitle>Paiement de l&apos;Impôt Foncier</CardTitle>
                 <CardDescription>Choisissez votre méthode de paiement et complétez la transaction</CardDescription>
               </CardHeader>
               <CardContent>
@@ -99,7 +99,10 @@ export default function PaiementPage({ params }: { params: Promise<{ id: string 
                   {/* Payment Method Selection */}
                   <div className="space-y-3">
                     <Label>Méthode de Paiement</Label>
-                    <RadioGroup value={paymentMethod} onValueChange={(value: any) => setPaymentMethod(value)}>
+                    <RadioGroup 
+                      value={paymentMethod} 
+                      onValueChange={(value: "carte" | "mobile_money" | "virement") => setPaymentMethod(value)}
+                    >
                       <div className="flex items-center space-x-3 border rounded-lg p-4 cursor-pointer hover:bg-gray-50">
                         <RadioGroupItem value="carte" id="carte" />
                         <Label htmlFor="carte" className="flex items-center gap-3 cursor-pointer flex-1">
@@ -145,7 +148,7 @@ export default function PaiementPage({ params }: { params: Promise<{ id: string 
 
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
-                          <Label htmlFor="expiry">Date d'Expiration</Label>
+                          <Label htmlFor="expiry">Date d&apos;Expiration</Label>
                           <Input id="expiry" placeholder="MM/AA" required />
                         </div>
 

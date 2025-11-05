@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, useCallback } from "react"
 import type { Parcelle } from "@/lib/types"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -14,11 +14,77 @@ interface MapViewProps {
   onParcelleSelect?: (parcelle: Parcelle) => void
 }
 
+// Définition des types Leaflet minimaux pour éviter la dépendance @types/leaflet
+interface LeafletMap {
+  setView: (center: [number, number], zoom: number) => void
+  remove: () => void
+}
+
+interface LeafletMarker {
+  remove: () => void
+  on: (event: string, callback: () => void) => void
+  addTo: (map: LeafletMap) => void
+}
+
+interface LeafletDivIconOptions {
+  className: string
+  html: string
+  iconSize: [number, number]
+  iconAnchor: [number, number]
+}
+
+interface LeafletMarkerOptions {
+  icon: unknown // Utilisé pour l'icône du marqueur
+}
+
+interface LeafletTileLayer {
+  addTo: (map: LeafletMap) => void
+}
+
+interface LeafletModule {
+  map: (element: HTMLElement) => LeafletMap
+  tileLayer: (url: string, options: { attribution: string; maxZoom: number }) => LeafletTileLayer
+  divIcon: (options: LeafletDivIconOptions) => unknown
+  marker: (latlng: [number, number], options?: LeafletMarkerOptions) => LeafletMarker
+}
+
 export function MapView({ parcelles, selectedParcelleId, onParcelleSelect }: MapViewProps) {
   const mapRef = useRef<HTMLDivElement>(null)
-  const [map, setMap] = useState<any>(null)
+  const [map, setMap] = useState<LeafletMap | null>(null)
   const [selectedParcelle, setSelectedParcelle] = useState<Parcelle | null>(null)
-  const markersRef = useRef<any[]>([])
+  const markersRef = useRef<LeafletMarker[]>([])
+
+  // Memoize the marker creation function to prevent unnecessary re-renders
+  const createMarkers = useCallback((L: LeafletModule, mapInstance: LeafletMap) => {
+    // Clear existing markers
+    markersRef.current.forEach(marker => {
+      marker.remove()
+    })
+    markersRef.current = []
+
+    // Add markers for each parcelle
+    parcelles.forEach((parcelle) => {
+      const color = parcelle.statut === "a_jour" ? "green" : parcelle.statut === "en_retard" ? "orange" : "red"
+
+      const icon = L.divIcon({
+        className: "custom-marker",
+        html: `<div style="background-color: ${color}; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>`,
+        iconSize: [24, 24],
+        iconAnchor: [12, 12],
+      })
+
+      const marker = L.marker(parcelle.coordinates, { icon })
+        .addTo(mapInstance)
+        .on("click", () => {
+          setSelectedParcelle(parcelle)
+          if (onParcelleSelect) {
+            onParcelleSelect(parcelle)
+          }
+        })
+
+      markersRef.current.push(marker)
+    })
+  }, [parcelles, onParcelleSelect])
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -37,35 +103,13 @@ export function MapView({ parcelles, selectedParcelleId, onParcelleSelect }: Map
       }).addTo(newMap)
 
       setMap(newMap)
-
-      // Add markers for each parcelle
-      parcelles.forEach((parcelle) => {
-        const color = parcelle.statut === "a_jour" ? "green" : parcelle.statut === "en_retard" ? "orange" : "red"
-
-        const icon = L.divIcon({
-          className: "custom-marker",
-          html: `<div style="background-color: ${color}; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>`,
-          iconSize: [24, 24],
-          iconAnchor: [12, 12],
-        })
-
-        const marker = L.marker(parcelle.coordinates, { icon })
-          .addTo(newMap)
-          .on("click", () => {
-            setSelectedParcelle(parcelle)
-            if (onParcelleSelect) {
-              onParcelleSelect(parcelle)
-            }
-          })
-
-        markersRef.current.push(marker)
-      })
+      createMarkers(L, newMap)
 
       return () => {
         newMap.remove()
       }
     })
-  }, [])
+  }, [map, createMarkers])
 
   useEffect(() => {
     if (selectedParcelleId && map) {

@@ -1,9 +1,8 @@
-
 "use client"
 import React, { useState, useMemo } from 'react';
 import { 
-  TrendingUp, TrendingDown, DollarSign, Users, MapPin, 
-  CreditCard, Download, Calendar, BarChart3, PieChart,
+  TrendingUp, DollarSign, Users, MapPin, 
+  CreditCard, Download, BarChart3, PieChart,
   Activity, ArrowUpRight, ArrowDownRight, FileText,
   Filter, RefreshCw, Printer, Mail, Eye
 } from 'lucide-react';
@@ -27,7 +26,7 @@ const mockParcelles = [
 // Génération de données mensuelles
 const generateMonthlyData = () => {
   const months = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'];
-  return months.map((month, index) => ({
+  return months.map((month) => ({
     mois: month,
     revenus: 15000000 + Math.random() * 8000000,
     depenses: 3000000 + Math.random() * 2000000,
@@ -103,7 +102,7 @@ export default function StatistiquesRapports() {
     };
   }, [monthlyData, quartierData]);
 
-  const exportRapport = (type) => {
+  const exportRapport = (type: string) => {
     const timestamp = new Date().toISOString().split('T')[0];
     let content = '';
     

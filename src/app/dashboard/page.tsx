@@ -35,7 +35,7 @@ export default function DashboardPage() {
       <div className="p-6">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900 mb-1">Tableau de bord</h1>
-          <p className="text-sm text-gray-600">Vue d'ensemble de vos parcelles et paiements</p>
+          <p className="text-sm text-gray-600">Vue d&apos;ensemble de vos parcelles et paiements</p>
         </div>
 
         {/* Stats Cards */}

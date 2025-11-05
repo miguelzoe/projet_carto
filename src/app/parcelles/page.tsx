@@ -19,8 +19,57 @@ interface ShapefileInfo {
 
 interface Feature {
   type: string;
-  geometry: any;
-  properties: any;
+  geometry: Record<string, unknown>;
+  properties: Record<string, string | number | boolean | null>;
+}
+
+// Types Leaflet basés sur l'API réelle
+interface LeafletMap {
+  remove: () => void;
+  removeLayer: (layer: unknown) => void;
+  fitBounds: (bounds: unknown, options?: { padding: number[] }) => void;
+  setView: (center: [number, number], zoom: number) => LeafletMap;
+  addLayer: (layer: unknown) => void;
+}
+
+interface LeafletTileLayer {
+  addTo: (map: LeafletMap) => LeafletTileLayer;
+  setZIndex: (zIndex: number) => void;
+}
+
+interface LeafletGeoJSON {
+  addTo: (map: LeafletMap) => LeafletGeoJSON;
+  getBounds: () => { isValid: () => boolean };
+  setZIndex: (zIndex: number) => void;
+}
+
+interface LeafletLayer {
+  bindPopup: (content: string, options: { maxWidth: number; className: string }) => void;
+  on: (event: string, callback: () => void) => void;
+  setStyle: (style: { weight: number; fillOpacity: number }) => void;
+}
+
+interface LeafletBounds {
+  isValid: () => boolean;
+}
+
+interface LeafletLib {
+  map: (element: HTMLDivElement, options?: { zoomControl: boolean; attributionControl: boolean }) => LeafletMap;
+  tileLayer: (url: string, options: { attribution: string; maxZoom: number }) => LeafletTileLayer;
+  geoJSON: (geojson: Feature[], options: GeoJSONOptions) => LeafletGeoJSON;
+  LatLngBounds: new (southWest: [number, number], northEast: [number, number]) => LeafletBounds;
+}
+
+interface GeoJSONOptions {
+  onEachFeature: (feature: Feature, layer: LeafletLayer) => void;
+  style?: (() => StyleOptions) | StyleOptions;
+}
+
+interface StyleOptions {
+  color: string;
+  weight: number;
+  fillOpacity: number;
+  fillColor: string;
 }
 
 const BASE_MAPS = {
@@ -51,20 +100,22 @@ const BASE_MAPS = {
   }
 };
 
+type BaseMapKey = keyof typeof BASE_MAPS;
+
 const Parcelles: React.FC = () => {
   const mapRef = useRef<HTMLDivElement>(null);
-  const [map, setMap] = useState<any>(null);
+  const [map, setMap] = useState<LeafletMap | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [shapefileInfo, setShapefileInfo] = useState<ShapefileInfo | null>(null);
   const [features, setFeatures] = useState<Feature[]>([]);
   const [selectedFeature, setSelectedFeature] = useState<Feature | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [attributes, setAttributes] = useState<any>(null);
-  const [currentBaseMap, setCurrentBaseMap] = useState<keyof typeof BASE_MAPS>('satellite');
+  const [attributes, setAttributes] = useState<Record<string, { type: string }> | null>(null);
+  const [currentBaseMap, setCurrentBaseMap] = useState<BaseMapKey>('satellite');
   const [showBaseMapSelector, setShowBaseMapSelector] = useState(false);
-  const geoJsonLayerRef = useRef<any>(null);
-  const baseLayerRef = useRef<any>(null);
+  const geoJsonLayerRef = useRef<LeafletGeoJSON | null>(null);
+  const baseLayerRef = useRef<LeafletTileLayer | null>(null);
 
   const API_BASE_URL = 'https://gestion-fonciere-1.onrender.com/api';
 
@@ -75,8 +126,8 @@ const Parcelles: React.FC = () => {
       if (data.success) {
         setShapefileInfo(data.data);
       }
-    } catch (err) {
-      console.error('Erreur infos:', err);
+    } catch {
+      console.error('Erreur infos:');
     }
   }, []);
 
@@ -87,13 +138,13 @@ const Parcelles: React.FC = () => {
       if (data.success) {
         setAttributes(data.attributes);
       }
-    } catch (err) {
-      console.error('Erreur attributs:', err);
+    } catch {
+      console.error('Erreur attributs:');
     }
   }, []);
 
   const loadGeoJSON = useCallback(async () => {
-    if (!map) return;
+    if (!map || !window.L) return;
 
     try {
       const response = await fetch(`${API_BASE_URL}/geojson`);
@@ -104,9 +155,9 @@ const Parcelles: React.FC = () => {
           map.removeLayer(geoJsonLayerRef.current);
         }
 
-        geoJsonLayerRef.current = window.L.geoJSON(data.features, {
-          onEachFeature: (feature: Feature, layer: any) => {
-            // Sélectionner les 5 premiers attributs
+        const L = window.L as LeafletLib;
+        geoJsonLayerRef.current = L.geoJSON(data.features, {
+          onEachFeature: (feature: Feature, layer: LeafletLayer) => {
             const entries = Object.entries(feature.properties).slice(0, 5);
             
             const popupContent = `
@@ -144,10 +195,10 @@ const Parcelles: React.FC = () => {
             
             layer.bindPopup(popupContent, { maxWidth: 350, className: 'custom-popup' });
             layer.on('click', () => setSelectedFeature(feature));
-            layer.on('mouseover', function() {
+            layer.on('mouseover', function(this: LeafletLayer) {
               this.setStyle({ weight: 4, fillOpacity: 0.7 });
             });
-            layer.on('mouseout', function() {
+            layer.on('mouseout', function(this: LeafletLayer) {
               this.setStyle({ weight: 2, fillOpacity: 0.4 });
             });
           },
@@ -157,24 +208,26 @@ const Parcelles: React.FC = () => {
             fillOpacity: 0.4,
             fillColor: '#22c55e'
           })
-        }).addTo(map);
+        });
+
+        geoJsonLayerRef.current.addTo(map);
 
         const bounds = geoJsonLayerRef.current.getBounds();
-        if (bounds.isValid()) {
+        if (bounds && bounds.isValid()) {
           map.fitBounds(bounds, { padding: [50, 50] });
         }
         
         setFeatures(data.features);
-        setError(null);
+        setErrorMessage(null);
       }
-    } catch (err) {
-      console.error('Erreur GeoJSON:', err);
-      setError('Impossible de charger les données');
+    } catch {
+      console.error('Erreur GeoJSON:');
+      setErrorMessage('Impossible de charger les données');
     }
   }, [map]);
 
   const searchFeatures = useCallback(async (query: string) => {
-    if (!map) return;
+    if (!map || !window.L) return;
 
     if (!query.trim()) {
       loadGeoJSON();
@@ -198,9 +251,9 @@ const Parcelles: React.FC = () => {
         }
 
         if (data.features.length > 0) {
-          geoJsonLayerRef.current = window.L.geoJSON(data.features, {
-            onEachFeature: (feature: Feature, layer: any) => {
-              // Sélectionner les 5 premiers attributs
+          const L = window.L as LeafletLib;
+          geoJsonLayerRef.current = L.geoJSON(data.features, {
+            onEachFeature: (feature: Feature, layer: LeafletLayer) => {
               const entries = Object.entries(feature.properties).slice(0, 5);
               
               const popupContent = `
@@ -244,40 +297,45 @@ const Parcelles: React.FC = () => {
               fillOpacity: 0.5,
               fillColor: '#ef4444'
             }
-          }).addTo(map);
+          });
+
+          geoJsonLayerRef.current.addTo(map);
 
           const bounds = geoJsonLayerRef.current.getBounds();
-          if (bounds.isValid()) {
+          if (bounds && bounds.isValid()) {
             map.fitBounds(bounds, { padding: [50, 50] });
           }
           
           setFeatures(data.features);
-          setError(null);
+          setErrorMessage(null);
         } else {
-          setError('Aucun résultat trouvé');
-          setTimeout(() => setError(null), 3000);
+          setErrorMessage('Aucun résultat trouvé');
+          setTimeout(() => setErrorMessage(null), 3000);
         }
       }
-    } catch (err) {
-      console.error('Erreur recherche:', err);
-      setError('Erreur lors de la recherche');
+    } catch {
+      console.error('Erreur recherche:');
+      setErrorMessage('Erreur lors de la recherche');
     }
   }, [map, attributes, loadGeoJSON]);
 
-  const changeBaseMap = useCallback((mapType: keyof typeof BASE_MAPS) => {
-    if (!map) return;
+  const changeBaseMap = useCallback((mapType: BaseMapKey) => {
+    if (!map || !window.L) return;
 
     if (baseLayerRef.current) {
       map.removeLayer(baseLayerRef.current);
     }
 
     const baseMapConfig = BASE_MAPS[mapType];
-    baseLayerRef.current = window.L.tileLayer(baseMapConfig.url, {
+    const L = window.L as LeafletLib;
+    baseLayerRef.current = L.tileLayer(baseMapConfig.url, {
       attribution: baseMapConfig.attribution,
       maxZoom: 19
-    }).addTo(map);
+    });
 
+    baseLayerRef.current.addTo(map);
     baseLayerRef.current.setZIndex(1);
+    
     if (geoJsonLayerRef.current) {
       geoJsonLayerRef.current.setZIndex(1000);
     }
@@ -294,22 +352,28 @@ const Parcelles: React.FC = () => {
     if (!mapRef.current || typeof window.L === 'undefined') return;
 
     try {
-      const leafletMap = window.L.map(mapRef.current, {
+      const L = window.L as LeafletLib;
+      const leafletMap = L.map(mapRef.current, {
         zoomControl: true,
         attributionControl: true
-      }).setView([3.8480, 11.5021], 13);
+      });
+      
+      leafletMap.setView([3.8480, 11.5021], 13);
       
       const baseMapConfig = BASE_MAPS[currentBaseMap];
-      baseLayerRef.current = window.L.tileLayer(baseMapConfig.url, {
+      const tileLayer = L.tileLayer(baseMapConfig.url, {
         attribution: baseMapConfig.attribution,
         maxZoom: 19
-      }).addTo(leafletMap);
+      });
+      
+      baseLayerRef.current = tileLayer;
+      tileLayer.addTo(leafletMap);
 
       setMap(leafletMap);
       setIsLoading(false);
       return leafletMap;
-    } catch (err) {
-      setError('Erreur initialisation carte');
+    } catch {
+      setErrorMessage('Erreur initialisation carte');
       setIsLoading(false);
     }
   }, [currentBaseMap]);
@@ -338,7 +402,7 @@ const Parcelles: React.FC = () => {
     };
     
     script.onerror = () => {
-      setError('Échec chargement Leaflet');
+      setErrorMessage('Échec chargement Leaflet');
       setIsLoading(false);
     };
 
@@ -347,10 +411,10 @@ const Parcelles: React.FC = () => {
     return () => {
       if (map) map.remove();
     };
-  }, [initializeMap]);
+  }, [initializeMap, map]);
 
   useEffect(() => {
-    if (map) {
+    if (map && window.L) {
       loadShapefileInfo();
       loadAttributes();
       loadGeoJSON();
@@ -482,9 +546,9 @@ const Parcelles: React.FC = () => {
             </div>
           )}
 
-          {error && (
+          {errorMessage && (
             <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg">
-              {error}
+              {errorMessage}
             </div>
           )}
 
@@ -505,7 +569,7 @@ const Parcelles: React.FC = () => {
                   {Object.entries(BASE_MAPS).map(([key, config]) => (
                     <button
                       key={key}
-                      onClick={() => changeBaseMap(key as keyof typeof BASE_MAPS)}
+                      onClick={() => changeBaseMap(key as BaseMapKey)}
                       className={`w-full text-left px-3 py-2 rounded hover:bg-gray-100 transition-colors ${
                         currentBaseMap === key ? 'bg-green-100 font-semibold text-green-700' : 'text-gray-700'
                       }`}
@@ -544,7 +608,7 @@ const Parcelles: React.FC = () => {
 
 declare global {
   interface Window {
-    L: any;
+    L: unknown; // Nous utilisons unknown au lieu de LeafletLib pour plus de flexibilité
   }
 }
 

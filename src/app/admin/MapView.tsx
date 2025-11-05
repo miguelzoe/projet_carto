@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
-import { MapPin, Layers, Search, Download, Info, RefreshCw, Globe, AlertTriangle, CheckCircle, Clock } from 'lucide-react';
+import { MapPin, Layers, Search, Info, RefreshCw, Globe, AlertTriangle, CheckCircle, Clock } from 'lucide-react';
 
 interface Parcelle {
   id: string;
@@ -14,17 +14,34 @@ interface Parcelle {
   statut: "a_jour" | "en_retard" | "impaye";
   latitude: number;
   longitude: number;
-  geometry?: any;
-  // Nouveaux champs pour correspondre aux données shapefile
-  properties?: any;
+  geometry?: Record<string, unknown>;
+  properties?: Record<string, string | number>;
 }
 
 interface MapViewProps {
   parcelles: Parcelle[];
   searchQuery: string;
+  setSearchQuery: (query: string) => void;
 }
 
-const BASE_MAPS = {
+interface BaseMapConfig {
+  name: string;
+  url: string;
+  attribution: string;
+}
+
+interface ShapefileInfo {
+  total_features?: number;
+  geometry_type?: string[];
+  crs?: string;
+  columns?: string[];
+}
+
+interface AttributeInfo {
+  type?: string;
+}
+
+const BASE_MAPS: Record<string, BaseMapConfig> = {
   satellite: {
     name: 'Satellite',
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
@@ -42,31 +59,77 @@ const BASE_MAPS = {
   }
 };
 
-const MapView: React.FC<MapViewProps> = ({ parcelles, searchQuery }) => {
+interface LeafletMap {
+  remove: () => void;
+  removeLayer: (layer: LeafletFeatureGroup) => void;
+  fitBounds: (bounds: unknown, options?: { padding: number[] }) => void;
+  getCenter: () => { lat: number; lng: number };
+  getZoom: () => number;
+  setView: (center: [number, number], zoom: number) => LeafletMap;
+}
+
+interface LeafletTileLayer {
+  addTo: (map: LeafletMap) => void;
+}
+
+interface Leaflet {
+  map: (element: HTMLDivElement, options?: { zoomControl: boolean; attributionControl: boolean }) => LeafletMap;
+  tileLayer: (url: string, options: { attribution: string; maxZoom: number }) => LeafletTileLayer;
+  featureGroup: () => LeafletFeatureGroup;
+  circleMarker: (latlng: [number, number], options: CircleMarkerOptions) => LeafletCircleMarker;
+}
+
+interface LeafletFeatureGroup {
+  addTo: (map: LeafletMap) => void;
+  getBounds: () => unknown;
+}
+
+interface LeafletCircleMarker {
+  bindPopup: (content: string, options: { maxWidth: number; className: string }) => void;
+  on: (event: string, callback: () => void) => void;
+  setStyle: (style: { fillOpacity: number; weight: number }) => void;
+  addTo: (group: LeafletFeatureGroup) => void;
+}
+
+interface CircleMarkerOptions {
+  radius: number;
+  fillColor: string;
+  color: string;
+  weight: number;
+  opacity: number;
+  fillOpacity: number;
+}
+
+declare global {
+  interface Window {
+    L: Leaflet;
+  }
+}
+
+const MapView: React.FC<MapViewProps> = ({ parcelles, searchQuery, setSearchQuery }) => {
   const mapRef = useRef<HTMLDivElement>(null);
-  const [map, setMap] = useState<any>(null);
+  const [map, setMap] = useState<LeafletMap | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedParcelle, setSelectedParcelle] = useState<Parcelle | null>(null);
-  const [currentBaseMap, setCurrentBaseMap] = useState<keyof typeof BASE_MAPS>('streets');
+  const [currentBaseMap, setCurrentBaseMap] = useState<string>('streets');
   const [showBaseMapSelector, setShowBaseMapSelector] = useState(false);
-  const markerLayerRef = useRef<any>(null);
-  const [shapefileInfo, setShapefileInfo] = useState<any>(null);
-  const [attributes, setAttributes] = useState<any>(null);
+  const markerLayerRef = useRef<LeafletFeatureGroup | null>(null);
+  const [shapefileInfo, setShapefileInfo] = useState<ShapefileInfo | null>(null);
+  const [attributes, setAttributes] = useState<Record<string, AttributeInfo> | null>(null);
 
   const API_BASE_URL = 'https://gestion-fonciere-1.onrender.com/api';
 
-  // Fonction pour obtenir la couleur selon le statut
   const getColorByStatut = (statut: string) => {
     switch (statut) {
       case "a_jour":
-        return "#22c55e"; // Vert
+        return "#22c55e";
       case "en_retard":
-        return "#f97316"; // Orange
+        return "#f97316";
       case "impaye":
-        return "#ef4444"; // Rouge
+        return "#ef4444";
       default:
-        return "#6b7280"; // Gris
+        return "#6b7280";
     }
   };
 
@@ -83,39 +146,24 @@ const MapView: React.FC<MapViewProps> = ({ parcelles, searchQuery }) => {
     }
   };
 
-  const getStatusIcon = (statut: string) => {
-    switch (statut) {
-      case "a_jour":
-        return <CheckCircle className="w-4 h-4" />;
-      case "en_retard":
-        return <Clock className="w-4 h-4" />;
-      case "impaye":
-        return <AlertTriangle className="w-4 h-4" />;
-      default:
-        return null;
-    }
-  };
-
-  // Charger les informations shapefile
   const loadShapefileInfo = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/info`);
       const data = await response.json();
       if (data.success) {
-        setShapefileInfo(data.data);
+        setShapefileInfo(data.data as ShapefileInfo);
       }
     } catch (err) {
       console.error('Erreur infos:', err);
     }
   }, []);
 
-  // Charger les attributs
   const loadAttributes = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/attributes`);
       const data = await response.json();
       if (data.success) {
-        setAttributes(data.attributes);
+        setAttributes(data.attributes as Record<string, AttributeInfo>);
       }
     } catch (err) {
       console.error('Erreur attributs:', err);
@@ -123,9 +171,8 @@ const MapView: React.FC<MapViewProps> = ({ parcelles, searchQuery }) => {
   }, []);
 
   const createMarkers = useCallback(() => {
-    if (!map || !parcelles.length) return;
+    if (!map || !parcelles.length || !window.L) return;
 
-    // Supprimer les marqueurs existants
     if (markerLayerRef.current) {
       map.removeLayer(markerLayerRef.current);
     }
@@ -135,7 +182,6 @@ const MapView: React.FC<MapViewProps> = ({ parcelles, searchQuery }) => {
     parcelles.forEach((parcelle) => {
       const color = getColorByStatut(parcelle.statut);
 
-      // Créer un marqueur circulaire coloré
       const marker = window.L.circleMarker([parcelle.latitude, parcelle.longitude], {
         radius: parcelle.statut === "impaye" ? 10 : 
                 parcelle.statut === "en_retard" ? 8 : 6,
@@ -146,9 +192,8 @@ const MapView: React.FC<MapViewProps> = ({ parcelles, searchQuery }) => {
         fillOpacity: 0.7
       });
 
-      // Créer les propriétés au format similaire au composant Parcelles
-      const featureProperties = {
-        ...parcelle.properties, // Propriétés shapefile existantes
+      const featureProperties: Record<string, string | number> = {
+        ...(parcelle.properties || {}),
         NUMERO: parcelle.numero,
         NOM: parcelle.proprietaireNom,
         ADRESSE: parcelle.adresse,
@@ -158,7 +203,6 @@ const MapView: React.FC<MapViewProps> = ({ parcelles, searchQuery }) => {
         STATUT: parcelle.statut
       };
 
-      // Sélectionner les 5 premiers attributs comme dans le composant Parcelles
       const entries = Object.entries(featureProperties).slice(0, 5);
       
       const popupContent = `
@@ -196,24 +240,17 @@ const MapView: React.FC<MapViewProps> = ({ parcelles, searchQuery }) => {
 
       marker.bindPopup(popupContent, { maxWidth: 350, className: 'custom-popup' });
       
-      // Stocker toutes les propriétés pour l'affichage détaillé
-      const parcelleWithProperties = {
+      const parcelleWithProperties: Parcelle = {
         ...parcelle,
         properties: featureProperties
       };
       
       marker.on('click', () => setSelectedParcelle(parcelleWithProperties));
-      marker.on('mouseover', function() {
-        this.setStyle({
-          fillOpacity: 0.9,
-          weight: 3
-        });
+      marker.on('mouseover', function(this: LeafletCircleMarker) {
+        this.setStyle({ fillOpacity: 0.9, weight: 3 });
       });
-      marker.on('mouseout', function() {
-        this.setStyle({
-          fillOpacity: 0.7,
-          weight: 2
-        });
+      marker.on('mouseout', function(this: LeafletCircleMarker) {
+        this.setStyle({ fillOpacity: 0.7, weight: 2 });
       });
       
       marker.addTo(markerGroup);
@@ -221,7 +258,6 @@ const MapView: React.FC<MapViewProps> = ({ parcelles, searchQuery }) => {
 
     markerGroup.addTo(map);
     
-    // Ajuster la vue pour montrer tous les marqueurs
     if (parcelles.length > 0) {
       map.fitBounds(markerGroup.getBounds(), { padding: [50, 50] });
     }
@@ -229,15 +265,19 @@ const MapView: React.FC<MapViewProps> = ({ parcelles, searchQuery }) => {
     markerLayerRef.current = markerGroup;
   }, [map, parcelles]);
 
-  const changeBaseMap = useCallback((mapType: keyof typeof BASE_MAPS) => {
-    if (!map) return;
+  const changeBaseMap = useCallback((mapType: string) => {
+    if (!map || !window.L || !mapRef.current) return;
 
-    // Recréer la carte avec le nouveau fond
     const baseMapConfig = BASE_MAPS[mapType];
+    const center = map.getCenter();
+    const zoom = map.getZoom();
+    
+    map.remove();
+
     const newMap = window.L.map(mapRef.current, {
       zoomControl: true,
       attributionControl: true
-    }).setView(map.getCenter(), map.getZoom());
+    }).setView([center.lat, center.lng], zoom);
 
     window.L.tileLayer(baseMapConfig.url, {
       attribution: baseMapConfig.attribution,
@@ -248,14 +288,15 @@ const MapView: React.FC<MapViewProps> = ({ parcelles, searchQuery }) => {
     setCurrentBaseMap(mapType);
     setShowBaseMapSelector(false);
     
-    // Recréer les marqueurs sur la nouvelle carte
     setTimeout(() => {
-      createMarkers();
+      if (newMap && parcelles.length > 0 && window.L) {
+        createMarkers();
+      }
     }, 100);
-  }, [map, createMarkers]);
+  }, [map, parcelles.length, createMarkers]);
 
   const initializeMap = useCallback(() => {
-    if (!mapRef.current || typeof window.L === 'undefined') return;
+    if (!mapRef.current || typeof window.L === 'undefined') return null;
 
     try {
       const leafletMap = window.L.map(mapRef.current, {
@@ -273,8 +314,10 @@ const MapView: React.FC<MapViewProps> = ({ parcelles, searchQuery }) => {
       setIsLoading(false);
       return leafletMap;
     } catch (err) {
+      console.error('Erreur initialisation:', err);
       setError('Erreur initialisation carte');
       setIsLoading(false);
+      return null;
     }
   }, [currentBaseMap]);
 
@@ -311,10 +354,10 @@ const MapView: React.FC<MapViewProps> = ({ parcelles, searchQuery }) => {
     return () => {
       if (map) map.remove();
     };
-  }, [initializeMap]);
+  }, [initializeMap, map]);
 
   useEffect(() => {
-    if (map && parcelles.length > 0) {
+    if (map && parcelles.length > 0 && window.L) {
       createMarkers();
     }
   }, [map, parcelles, createMarkers]);
@@ -362,7 +405,6 @@ const MapView: React.FC<MapViewProps> = ({ parcelles, searchQuery }) => {
       </div>
 
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
-        {/* Panneau latéral - Identique au composant Parcelles */}
         <div className="w-full md:w-80 bg-white border-r border-gray-200 overflow-y-auto shadow-lg">
           <div className="p-4 border-b border-gray-200 bg-gradient-to-br from-gray-50 to-white">
             <div className="relative">
@@ -372,12 +414,8 @@ const MapView: React.FC<MapViewProps> = ({ parcelles, searchQuery }) => {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                readOnly
               />
               <Search className="absolute left-3 top-2.5 w-5 h-5 text-gray-400" />
-            </div>
-            <div className="w-full mt-2 bg-gray-400 text-white py-2 rounded-lg text-center text-sm">
-              Utilisez la recherche du tableau
             </div>
           </div>
 
@@ -390,19 +428,19 @@ const MapView: React.FC<MapViewProps> = ({ parcelles, searchQuery }) => {
               <div className="space-y-2 text-sm text-gray-700">
                 <div className="flex justify-between items-center bg-gray-50 p-2 rounded">
                   <span className="font-medium">Total parcelles:</span>
-                  <span className="font-bold text-green-600">{shapefileInfo.total_features}</span>
+                  <span className="font-bold text-green-600">{shapefileInfo.total_features || 0}</span>
                 </div>
                 <div className="flex justify-between items-center bg-gray-50 p-2 rounded">
                   <span className="font-medium">Type géométrie:</span>
-                  <span className="text-xs">{shapefileInfo.geometry_type.join(', ')}</span>
+                  <span className="text-xs">{shapefileInfo.geometry_type?.join(', ') || 'N/A'}</span>
                 </div>
                 <div className="flex justify-between items-center bg-gray-50 p-2 rounded">
                   <span className="font-medium">Système coord.:</span>
-                  <span className="text-xs">{shapefileInfo.crs}</span>
+                  <span className="text-xs">{shapefileInfo.crs || 'N/A'}</span>
                 </div>
                 <div className="flex justify-between items-center bg-gray-50 p-2 rounded">
                   <span className="font-medium">Attributs:</span>
-                  <span className="font-bold text-green-600">{shapefileInfo.columns.length}</span>
+                  <span className="font-bold text-green-600">{shapefileInfo.columns?.length || 0}</span>
                 </div>
               </div>
             </div>
@@ -421,7 +459,6 @@ const MapView: React.FC<MapViewProps> = ({ parcelles, searchQuery }) => {
                     <span className="text-gray-900">{String(value)}</span>
                   </div>
                 ))}
-                {/* Informations fiscales supplémentaires */}
                 <div className="flex justify-between bg-white p-2 rounded border border-green-100">
                   <strong className="text-gray-700">Statut fiscal:</strong>
                   <span className={`font-semibold ${
@@ -489,7 +526,7 @@ const MapView: React.FC<MapViewProps> = ({ parcelles, searchQuery }) => {
                     {Object.keys(attributes).map((attr) => (
                       <div key={attr} className="bg-gradient-to-r from-gray-100 to-gray-50 p-2 rounded border border-gray-200">
                         <strong className="text-gray-700">{attr}</strong>
-                        <span className="text-gray-500 ml-2">({attributes[attr].type})</span>
+                        <span className="text-gray-500 ml-2">({attributes[attr]?.type || 'unknown'})</span>
                       </div>
                     ))}
                   </div>
@@ -499,7 +536,6 @@ const MapView: React.FC<MapViewProps> = ({ parcelles, searchQuery }) => {
           )}
         </div>
 
-        {/* Carte */}
         <div className="flex-1 relative">
           {isLoading && (
             <div className="absolute inset-0 flex items-center justify-center bg-white z-10">
@@ -518,7 +554,6 @@ const MapView: React.FC<MapViewProps> = ({ parcelles, searchQuery }) => {
 
           <div ref={mapRef} className="w-full h-full" />
 
-          {/* Contrôles de la carte */}
           <div className="absolute bottom-4 right-4 z-[1000] flex flex-col gap-2">
             <div className="relative">
               <button
@@ -534,7 +569,7 @@ const MapView: React.FC<MapViewProps> = ({ parcelles, searchQuery }) => {
                   {Object.entries(BASE_MAPS).map(([key, config]) => (
                     <button
                       key={key}
-                      onClick={() => changeBaseMap(key as keyof typeof BASE_MAPS)}
+                      onClick={() => changeBaseMap(key)}
                       className={`w-full text-left px-3 py-1.5 rounded hover:bg-gray-100 transition-colors text-sm ${
                         currentBaseMap === key ? 'bg-green-100 font-semibold text-green-700' : 'text-gray-700'
                       }`}
@@ -548,25 +583,19 @@ const MapView: React.FC<MapViewProps> = ({ parcelles, searchQuery }) => {
           </div>
 
           <div className="absolute top-4 right-4 z-[999] bg-white px-3 py-1.5 rounded-lg shadow-md text-xs font-medium text-gray-700">
-            <span>Fond: {BASE_MAPS[currentBaseMap].name}</span>
+            <span>Fond: {BASE_MAPS[currentBaseMap]?.name}</span>
           </div>
         </div>
       </div>
 
       <div className="bg-gray-800 text-white p-3 text-center text-sm">
         <p>
-          API Flask + {BASE_MAPS[currentBaseMap].name} © 2025 | 
+          API Flask + {BASE_MAPS[currentBaseMap]?.name} © 2025 | 
           <span className="font-semibold ml-2">{stats.total} parcelles chargées</span>
         </p>
       </div>
     </div>
   );
 };
-
-declare global {
-  interface Window {
-    L: any;
-  }
-}
 
 export default MapView;
